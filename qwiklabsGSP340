@@ -1,0 +1,75 @@
+https://www.qwiklabs.com/focuses/14341?parent=catalog
+[Build and Optimize Data Warehouses with BigQuery: Challenge Lab]
+
+Task 1: Create a table partitioned by date
+CREATE OR REPLACE TABLE bamiar.oxford
+ PARTITION BY date
+ OPTIONS(
+   partition_expiration_days=90
+ ) AS
+
+ SELECT * 
+ FROM `bigquery-public-data.covid19_govt_response.oxford_policy_tracker`
+ WHERE NOT alpha_3_code IN('GBR', 'BRA', 'CAN', 'USA')
+ --WHERE NOT alpha_3_code IN('GBR', 'BRA', 'CAN', 'USA','TON','TKM','RKS','KIR','HKG','TWN',"MAC")
+
+Task 2: Add new columns to your table
+ALTER TABLE bamiar.oxford
+ADD COLUMN IF NOT EXISTS population INT64,
+ADD COLUMN IF NOT EXISTS country_area FLOAT64,
+ADD COLUMN mobility STRUCT<
+    avg_retail FLOAT64,
+    avg_grocery     FLOAT64,
+    avg_parks       FLOAT64,
+    avg_transit     FLOAT64,
+    avg_workplace   FLOAT64,
+    avg_residential FLOAT64
+>
+
+
+
+Task 3: Add country population data to the population column
+UPDATE `qwiklabs-gcp-02-ef9d000ac866.bamiar.oxford` a
+SET a.population = b.pop_data_2019
+FROM `bigquery-public-data.covid19_ecdc.covid_19_geographic_distribution_worldwide` b
+WHERE b.date = "2020-12-14" AND a.alpha_3_code = b.country_territory_code
+--인구데이터가 2021년도 버전으로 업데이트 되지가 않아 where절을 2020-12-14로 고정(여러 날짜 대입해보고 되는걸로 고름;)
+
+
+
+Task 4: Add country area data to the country_area column
+UPDATE `qwiklabs-gcp-04-db03ab903c96.bamiar.oxford` a
+SET a.country_area = b.country_area
+FROM `bigquery-public-data.census_bureau_international.country_names_area` b
+WHERE a.country_name = b.country_name
+
+Task 5: Populate the mobility record data
+UPDATE `bamiar.oxford` t0
+SET t0.mobility = STRUCT<
+  avg_retail FLOAT64, 
+  avg_grocery FLOAT64, 
+  avg_parks FLOAT64, 
+  avg_transit FLOAT64, 
+  avg_workplace FLOAT64, 
+  avg_residential FLOAT64>
+  (t2.avg_retail, t2.avg_grocery, t2.avg_parks, t2.avg_transit, t2.avg_workplace, t2.avg_residential)
+FROM (SELECT country_region, date,
+      AVG(retail_and_recreation_percent_change_from_baseline) as avg_retail,
+      AVG(grocery_and_pharmacy_percent_change_from_baseline)  as avg_grocery,
+      AVG(parks_percent_change_from_baseline) as avg_parks,
+      AVG(transit_stations_percent_change_from_baseline) as avg_transit,
+      AVG( workplaces_percent_change_from_baseline ) as avg_workplace,
+      AVG( residential_percent_change_from_baseline)  as avg_residential
+      FROM `bigquery-public-data.covid19_google_mobility.mobility_report`
+      GROUP BY country_region, date) AS t2
+WHERE t0.country_name = t2.country_region
+and t0.date = t2.date;
+
+Task 6: Query missing data in population & country_area columns
+SELECT distinct country_name 
+FROM bamiar.oxford 
+where population is null 
+UNION ALL 
+SELECT distinct country_name 
+from bamiar.oxford where country_area is null
+order by country_name asc
